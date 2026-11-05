@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ruteo de distribución · Neuquén</title>
+<meta name="description" content="Vehicle routing with time windows for a food distributor in Neuquén, Argentina. Manual plan vs OR-Tools, and live re-routing after a truck breakdown.">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<style>
+:root{
+  --bg:#f5f6f4; --panel:#ffffff; --ink:#1d2321; --muted:#5d6763; --line:#dde2df;
+  --accent:#0f6e5c; --accent-soft:#e3f1ed; --bad:#b4372b; --bad-soft:#f8e6e3; --good:#1c7a46;
+  --t1:#2b6cb0; --t2:#c05621; --t3:#6b46c1; --t4:#2f855a; --t5:#b83280;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#141816; --panel:#1d2220; --ink:#e7ece9; --muted:#9aa5a0; --line:#2e3532;
+    --accent:#4fc1a6; --accent-soft:#1f3a33; --bad:#f08a7e; --bad-soft:#3a2321; --good:#6fd39b;
+    --t1:#63a4ff; --t2:#f6995c; --t3:#a78bfa; --t4:#5fd08f; --t5:#f472b6; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{padding:20px 24px 8px;max-width:1280px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0;max-width:820px}
+.lang{float:right;display:flex;gap:4px}
+.lang button{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:6px;padding:3px 9px;cursor:pointer;font:inherit;font-size:13px}
+.lang button.on{color:var(--ink);border-color:var(--accent)}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0 0}
+.tab{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;border-radius:8px;cursor:pointer;font:inherit;font-weight:600}
+.tab.on{background:var(--accent);border-color:var(--accent);color:#fff}
+main{max-width:1280px;margin:0 auto;padding:12px 24px 32px;display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:16px}
+#map{height:620px;border-radius:12px;border:1px solid var(--line);background:var(--panel)}
+aside{display:flex;flex-direction:column;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kpi b{display:block;font-size:24px;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi span{color:var(--muted);font-size:12.5px}
+.kpi i{display:block;font-style:normal;font-size:12.5px;font-weight:600}
+.up{color:var(--bad)} .down{color:var(--good)}
+.note{font-size:13.5px;color:var(--muted);margin:0}
+.note strong{color:var(--ink)}
+.alert{background:var(--bad-soft);border-color:transparent}
+.trucks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.trucks li{display:flex;flex-wrap:wrap;white-space:nowrap;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;padding:4px 6px;border-radius:6px}
+.trucks li:hover{background:var(--accent-soft)}
+.sw{width:12px;height:12px;border-radius:3px;flex:none}
+.trucks .meta{margin-left:auto;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.warn{color:var(--bad);font-weight:600}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+footer{max-width:1280px;margin:0 auto;padding:0 24px 28px;color:var(--muted);font-size:13px}
+footer a{color:var(--accent)}
+.leaflet-popup-content{font:13px/1.4 system-ui,sans-serif}
+.dep{background:var(--ink);color:var(--panel);border-radius:6px;font-weight:700;font-size:11px;padding:2px 5px;white-space:nowrap;box-shadow:0 1px 3px #0004}
+.brk{font-size:20px;line-height:20px;text-shadow:0 0 3px #fff}
+@media (max-width:900px){ main{grid-template-columns:1fr;padding:12px 16px 24px} header{padding:16px 16px 4px} #map{height:440px} footer{padding:0 16px 24px} }
+</style>
+</head>
+<body>
+<header>
+  <div class="lang"><button data-set="es" class="on">ES</button><button data-set="en">EN</button></div>
+  <h1 data-t="title"></h1>
+  <p class="sub" data-t="sub"></p>
+  <div class="tabs">
+    <button class="tab on" data-s="manual" data-t="tab_manual"></button>
+    <button class="tab" data-s="optimized" data-t="tab_opt"></button>
+    <button class="tab" data-s="breakdown" data-t="tab_bk"></button>
+  </div>
+</header>
+<main>
+  <div id="map" role="img" aria-label="Map of Neuquén with delivery routes"></div>
+  <aside>
+    <div class="card"><div class="kpis" id="kpis"></div></div>
+    <div class="card" id="story"></div>
+    <div class="card"><h2 data-t="fleet"></h2><ul class="trucks" id="trucks"></ul></div>
+  </aside>
+</main>
+<footer>
+  <span data-t="foot"></span>
+  · <a href="mailto:juanlaigle@gmail.com?subject=Ruteo%20de%20distribuci%C3%B3n">juanlaigle@gmail.com</a>
+  · <a href="https://www.linkedin.com/in/juanlaiglecia">LinkedIn</a>
+</footer>
+<script src="vendor/leaflet.js"></script>
+<script src="data.js"></script>
+<script>
+const D = window.VRP;
+const T = {
+ es:{title:"Ruteo de distribución en Neuquén",
+  sub:"Una distribuidora de alimentos reparte desde su centro de distribución a 48 comercios de la ciudad, con 5 camiones de 220 cajas y ventanas horarias de mañana o de tarde. Compará el plan armado a mano con el optimizado, y qué pasa cuando un camión se rompe a media mañana.",
+  tab_manual:"1 · Plan manual", tab_opt:"2 · Optimizado (OR-Tools)", tab_bk:"3 · Camión roto 10:30",
+  km:"km recorridos", late:"entregas fuera de horario", delivered:"comercios atendidos", end:"último camión vuelve",
+  fleet:"Camiones", stops:"paradas", truck:"Camión", over:"sobrecargado", broken:"roto",
+  vs:"vs. manual",
+  s_manual:"<strong>Cómo se arma a mano:</strong> la ciudad se divide en 5 zonas alrededor del depósito y cada camión recorre la suya yendo siempre al comercio más cercano. Es simple, pero ignora los horarios: <strong>{late} entregas llegan tarde</strong> y el camión {over} sale con más carga de la que entra.",
+  s_opt:"<strong>Optimizado:</strong> un modelo de ruteo con ventanas horarias y capacidad (CVRPTW) resuelto con Google OR-Tools. Las zonas se cruzan donde conviene y los comercios de la mañana se atienden primero: <strong>{dkm}% menos km, ninguna entrega tarde</strong> y todos los camiones dentro de su capacidad.",
+  s_bk:"<strong>10:30, el camión {t} se rompe</strong> con {o} entregas pendientes. Sin re-ruteo, esos {o} comercios se quedan sin mercadería. El sistema recalcula en segundos desde donde está cada camión: <strong>los {o} se reparten entre los otros 4 y no hay entregas tarde</strong>, a cambio de {extra} km más.",
+  done:"ya entregado", plan:"plan nuevo", depot:"Centro de distribución",
+  win:"Ventana", dem:"Pedido", boxes:"cajas", arr:"Llega", lateb:"tarde",
+  foot:"Datos simulados: comercios, pedidos y horarios son ficticios. Las rutas del mapa siguen las calles (OSRM); los km del modelo se estimaron con la grilla urbana."},
+ en:{title:"Delivery routing in Neuquén",
+  sub:"A food distributor delivers from its warehouse to 48 shops across the city, with 5 trucks of 220 boxes and morning or afternoon delivery windows. Compare the hand-made plan with the optimized one, and see what happens when a truck breaks down mid-morning.",
+  tab_manual:"1 · Manual plan", tab_opt:"2 · Optimized (OR-Tools)", tab_bk:"3 · Breakdown at 10:30",
+  km:"km driven", late:"late deliveries", delivered:"shops served", end:"last truck back",
+  fleet:"Trucks", stops:"stops", truck:"Truck", over:"overloaded", broken:"broken",
+  vs:"vs. manual",
+  s_manual:"<strong>How it is done by hand:</strong> the city is split into 5 zones around the warehouse and each truck covers its zone, always driving to the nearest shop. Simple, but it ignores time windows: <strong>{late} deliveries arrive late</strong> and truck {over} leaves with more load than fits.",
+  s_opt:"<strong>Optimized:</strong> a capacitated vehicle routing model with time windows (CVRPTW) solved with Google OR-Tools. Zones overlap where it pays off and morning shops are served first: <strong>{dkm}% fewer km, no late deliveries</strong> and every truck within capacity.",
+  s_bk:"<strong>10:30, truck {t} breaks down</strong> with {o} deliveries pending. Without re-routing those {o} shops get nothing. The system re-plans in seconds from where each truck is: <strong>the {o} are shared among the other 4 with no late deliveries</strong>, for {extra} extra km.",
+  done:"already delivered", plan:"new plan", depot:"Warehouse",
+  win:"Window", dem:"Order", boxes:"boxes", arr:"Arrives", lateb:"late",
+  foot:"Simulated data: shops, orders and windows are fictitious. Map routes follow the streets (OSRM); model km were estimated on the city grid."}
+};
+let lang = "es", scen = "manual", hi = null;
+try{ const l = localStorage.getItem("vrp-lang"); if(l && T[l]) lang = l; }catch(e){}
+const css = getComputedStyle(document.documentElement);
+const COL = [1,2,3,4,5].map(i => css.getPropertyValue("--t"+i).trim());
+const hm = m => { m=Math.round(m); return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0"); };
+const C = id => D.customers[id-1];
+const ll = n => n===0 ? [D.depot.lat,D.depot.lon] : [C(n).lat,C(n).lon];
+
+const map = L.map("map",{zoomControl:true,scrollWheelZoom:false}).setView([-38.94,-68.075],13);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{maxZoom:19,subdomains:"abcd",
+  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a> · rutas <a href="https://project-osrm.org">OSRM</a>'}).addTo(map);
+let layer = L.layerGroup().addTo(map);
+// Street-following geometry from OSRM, fetched once per leg sequence and cached; straight lines until it arrives
+const geoCache = new Map(); let queue = Promise.resolve();
+function road(nodes){
+  const key = nodes.join("-");
+  if(geoCache.has(key)) return geoCache.get(key);
+  const p = queue = queue.then(async ()=>{
+    const coords = nodes.map(n=>{ const q=ll(n); return q[1].toFixed(5)+","+q[0].toFixed(5); }).join(";");
+    try{
+      const r = await fetch("https://router.project-osrm.org/route/v1/driving/"+coords+"?overview=full&geometries=geojson");
+      if(!r.ok) throw 0; const j = await r.json();
+      return j.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+    }catch(e){ return null; }
+  });
+  geoCache.set(key,p); return p;
+}
+function path(nodes,style){
+  const line = L.polyline(nodes.map(ll),style).addTo(layer);
+  if(nodes.length>1) road(nodes).then(g=>{ if(g && layer.hasLayer(line)) line.setLatLngs(g); });
+  return line;
+}
+
+function fmt(s,o){ return s.replace(/\{(\w+)\}/g,(_,k)=>o[k]); }
+function tr(){ const t=T[lang];
+  document.documentElement.lang=lang;
+  document.querySelectorAll("[data-t]").forEach(e=>e.innerHTML=t[e.dataset.t]);
+  document.querySelectorAll(".lang button").forEach(b=>b.classList.toggle("on",b.dataset.set===lang));
+}
+function routesOf(s){
+  if(s==="breakdown") return D.breakdown.routes.slice().sort((a,b)=>a.truck-b.truck);
+  return D[s].routes;
+}
+function draw(){
+  const t=T[lang]; layer.clearLayers();
+  const rs=routesOf(scen);
+  rs.forEach(r=>{
+    const c=COL[r.truck-1], dim = hi && hi!==r.truck;
+    const op = dim ? .15 : .9;
+    if(scen==="breakdown"){
+      const doneN=[0,...r.done.map(s=>s.node)];
+      path(doneN,{color:c,weight:3,opacity:op*.55});
+      if(r.stops.length){
+        const last = r.done.length ? r.done[r.done.length-1].node : 0;
+        path([last,...r.stops.map(s=>s.node),0],{color:c,weight:4,opacity:op,dashArray:"8 6"});
+      }
+      if(r.truck===D.breakdown.truck){
+        L.marker(ll(r.pos),{icon:L.divIcon({className:"brk",html:"✖",iconSize:[20,20],iconAnchor:[10,10]})}).addTo(layer)
+         .bindTooltip(t.truck+" "+r.truck+" · "+t.broken+" 10:30");
+      }
+    } else {
+      path([0,...r.stops.map(s=>s.node),0],{color:c,weight:5,opacity:op});
+    }
+    const all = scen==="breakdown" ? [...r.done.map(s=>({...s,d:1})),...r.stops] : r.stops;
+    all.forEach(s=>{
+      const cu=C(s.node), late=s.late>0;
+      L.circleMarker(ll(s.node),{radius:late?8:6,color:late?css.getPropertyValue("--bad").trim():c,weight:late?3:1.5,fillColor:c,fillOpacity:dim?.15:(s.d?.45:.95),opacity:dim?.3:1})
+       .addTo(layer)
+       .bindPopup(`<b>${cu.name}</b><br>${t.truck} ${r.truck}${s.d?" · "+t.done:""}<br>${t.dem}: ${cu.demand} ${t.boxes}<br>${t.win}: ${hm(cu.tw[0])}–${hm(cu.tw[1])}<br>${t.arr}: ${hm(s.start)}${late?` <b style="color:var(--bad)">(${Math.round(s.late)} min ${t.lateb})</b>`:""}`);
+    });
+  });
+  L.marker([D.depot.lat,D.depot.lon],{icon:L.divIcon({className:"",html:'<div class="dep">CD</div>',iconSize:[26,18],iconAnchor:[13,9]})}).addTo(layer).bindTooltip(t.depot);
+}
+function panel(){
+  const t=T[lang], m=D.manual.kpi;
+  const k = scen==="breakdown" ? D.breakdown.kpi : D[scen].kpi;
+  const delta=(v,b,inv)=>{ if(scen==="manual") return ""; const d=v-b; if(!d) return ""; const p=Math.round(d/b*100);
+    return `<i class="${(d<0)!==!!inv?'down':'up'}">${d>0?"+":""}${typeof p==="number"&&isFinite(p)?p+"%":d} ${t.vs}</i>`; };
+  const lateDelta = scen==="manual" ? "" : `<i class="${k.late<m.late?'down':'up'}">${k.late-m.late} ${t.vs}</i>`;
+  document.getElementById("kpis").innerHTML =
+   `<div class="kpi"><b>${k.km.toFixed(1)}</b><span>${t.km}</span>${delta(k.km,m.km)}</div>
+    <div class="kpi"><b class="${k.late?'warn':''}">${k.late}</b><span>${t.late}</span>${lateDelta}</div>
+    <div class="kpi"><b>${k.delivered}/48</b><span>${t.delivered}</span></div>
+    <div class="kpi"><b>${hm(k.end)}</b><span>${t.end}</span></div>`;
+  const o=D.optimized.kpi, b=D.breakdown;
+  const story = scen==="manual" ? fmt(t.s_manual,{late:m.late,over:D.manual.overloaded.join(", ")||"–"})
+    : scen==="optimized" ? fmt(t.s_opt,{dkm:Math.round((1-o.km/m.km)*100)})
+    : fmt(t.s_bk,{t:b.truck,o:b.orphans,extra:(b.kpi.km-o.km).toFixed(1)});
+  const st=document.getElementById("story"); st.innerHTML=`<p class="note">${story}</p>`; st.classList.toggle("alert",scen==="breakdown");
+  const rs=routesOf(scen);
+  document.getElementById("trucks").innerHTML = rs.map(r=>{
+    const n = scen==="breakdown" ? r.done.length+r.stops.length : r.stops.length;
+    const load = scen==="breakdown" ? [...r.done,...r.stops].reduce((a,s)=>a+C(s.node).demand,0) : r.load;
+    const flag = r.over ? ` <span class="warn">${t.over}</span>` : (scen==="breakdown"&&r.truck===b.truck ? ` <span class="warn">${t.broken}</span>`:"");
+    return `<li data-tr="${r.truck}"><span class="sw" style="background:${COL[r.truck-1]}"></span>${t.truck} ${r.truck}${flag}<span class="meta">${n} ${t.stops} · ${load}/${D.fleet.cap} · ${r.km.toFixed(1)} km</span></li>`;
+  }).join("");
+  document.querySelectorAll("#trucks li").forEach(li=>li.onclick=()=>{ const v=+li.dataset.tr; hi = hi===v?null:v; draw(); });
+}
+function render(){ tr(); draw(); panel(); }
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{ scen=b.dataset.s; hi=null;
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===b)); draw(); panel(); });
+document.querySelectorAll(".lang button").forEach(b=>b.onclick=()=>{ lang=b.dataset.set; try{localStorage.setItem("vrp-lang",lang)}catch(e){} render(); });
+render();
+const pts=[[D.depot.lat,D.depot.lon],...D.customers.map(c=>[c.lat,c.lon])];
+map.fitBounds(pts,{padding:[24,24]});
+</script>
+</body>
+</html>
