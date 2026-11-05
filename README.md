@@ -1,6 +1,6 @@
 # Delivery routing in Neuquén · VRP with time windows
 
-**[Open the interactive demo](https://juanlaigle-hub.github.io/vrp-neuquen/)** · [Español](#español)
+**[Open the interactive demo](https://juanlaigle-hub.github.io/vrp-neuquen/)** (street map with OpenStreetMap and OSRM) · [Español](#español)
 
 A food distributor delivers from its warehouse to 48 shops across Neuquén, Argentina, with 5 trucks of 220 boxes each. Every shop has a morning (08–12), afternoon (14–18) or all-day delivery window. The demo compares three situations on a map:
 
