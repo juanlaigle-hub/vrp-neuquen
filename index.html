@@ -118,8 +118,8 @@ const C = id => D.customers[id-1];
 const ll = n => n===0 ? [D.depot.lat,D.depot.lon] : [C(n).lat,C(n).lon];
 
 const map = L.map("map",{zoomControl:true,scrollWheelZoom:false}).setView([-38.94,-68.075],13);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{maxZoom:19,subdomains:"abcd",
-  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a> · rutas <a href="https://project-osrm.org">OSRM</a>'}).addTo(map);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,
+  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · rutas <a href="https://project-osrm.org">OSRM</a>'}).addTo(map);
 let layer = L.layerGroup().addTo(map);
 // Street-following geometry from OSRM, fetched once per leg sequence and cached; straight lines until it arrives
 const geoCache = new Map(); let queue = Promise.resolve();

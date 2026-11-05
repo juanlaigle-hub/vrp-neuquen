@@ -21,7 +21,7 @@ The manual plan also leaves one truck overloaded (225 boxes for 220).
 
 ## About the data
 
-Shops, orders and windows are simulated. On the map, routes are drawn along the streets with OSRM (OpenStreetMap data) over a CARTO base map; the optimization itself used grid-city distances.
+Shops, orders and windows are simulated. On the map, routes are drawn along the streets with OSRM (OpenStreetMap data); the optimization itself used grid-city distances.
 
 The solver code is private. This repository contains the interactive page and the computed results. For a demo with your own data, write to [juanlaigle@gmail.com](mailto:juanlaigle@gmail.com).
 
