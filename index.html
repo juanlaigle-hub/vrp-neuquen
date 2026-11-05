@@ -118,8 +118,13 @@ const C = id => D.customers[id-1];
 const ll = n => n===0 ? [D.depot.lat,D.depot.lon] : [C(n).lat,C(n).lon];
 
 const map = L.map("map",{zoomControl:true,scrollWheelZoom:false}).setView([-38.94,-68.075],13);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,
+// Base map: OpenStreetMap; if its tiles fail, switch to Esri World Street Map (no key needed either)
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,
   attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · rutas <a href="https://project-osrm.org">OSRM</a>'}).addTo(map);
+let tileErr = 0;
+osm.on("tileerror",()=>{ if(++tileErr===4){ map.removeLayer(osm);
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,
+    attribution:'Tiles © Esri · © OpenStreetMap · rutas <a href="https://project-osrm.org">OSRM</a>'}).addTo(map).bringToBack(); } });
 let layer = L.layerGroup().addTo(map);
 // Street-following geometry from OSRM, fetched once per leg sequence and cached; straight lines until it arrives
 const geoCache = new Map(); let queue = Promise.resolve();
